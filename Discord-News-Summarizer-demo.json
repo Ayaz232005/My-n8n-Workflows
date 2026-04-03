@@ -1,0 +1,281 @@
+{
+  "name": "Geopolitical-News-Agent.json",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const isDiscord = $('Discord Trigger').isExecuted;\n\nlet query = \"Provide a comprehensive 6-hour geopolitical update. Focus heavily on any news regarding the US, Israel, and Iran. Add your own strategic intelligence and predictive analysis on potential outcomes based on these recent events.\";\n\nlet channelId = \"YOUR_DISCORD_CHANNEL_ID_HERE\"; \n\ntry {\n  if (isDiscord) {\n    query = $('Discord Trigger').first().json.content;\n    channelId = $('Discord Trigger').first().json.channelId;\n  }\n} catch(e) {}\n\nreturn [\n  { json: { url: 'https://www.aljazeera.com/xml/rss/all.xml', query, channelId } },\n  { json: { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', query, channelId } },\n  { json: { url: 'https://www.dawn.com/feeds/home/', query, channelId } }\n];"
+      },
+      "id": "b635d981-1a80-4f7a-a4af-56ebf25704aa",
+      "name": "Prepare Sources & Triggers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {}
+      },
+      "id": "10d7a46d-bbce-41d2-9585-f6f446fc68d3",
+      "name": "Fetch News RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allArticles = $input.all();\nconst sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);\nlet newsContext = '';\n\n// Grab the user data passed down from the previous node\nlet query = allArticles[0].json.query;\nlet channelId = allArticles[0].json.channelId;\n\nallArticles.forEach(item => {\n  if(item.json.isoDate) {\n    const pubDate = new Date(item.json.isoDate);\n    // Only keep news from the last 6 hours\n    if (pubDate > sixHoursAgo) {\n      newsContext += `\\n[Source: ${item.json.link}]\\nTitle: ${item.json.title}\\nSummary: ${item.json.contentSnippet}\\n---`;\n    }\n  }\n});\n\nif (newsContext === '') {\n  newsContext = 'No major news updates published in the last 6 hours from these sources.';\n}\n\n// Output a single block of text to feed into the AI\nreturn [{ json: { newsContext, query, channelId } }];"
+      },
+      "id": "403a9f73-6b51-4fbd-8154-cbb2463080a0",
+      "name": "Filter Last 6 Hours & Aggregate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Provide a comprehensive geopolitical update based on the provided news context. Focus heavily on any news regarding the US, Israel, and Iran. Add your own strategic intelligence and predictive analysis on potential outcomes based on these recent events.\n\nCRITICAL RULE: Your entire response MUST be under 3,000 characters. Keep it concise, punchy, and do not write long essays.",
+        "options": {
+          "systemMessage": "=You are an expert Geopolitical Intelligence Agent.\n\nLATEST NEWS CONTEXT (Last 6 Hours):\n{{ $json.newsContext }}\n\nINSTRUCTIONS:\n1. If the user asks a question, answer it directly using the news context provided.\n2. If generating a scheduled update, summarize the key events.\n3. INTELLIGENCE REQUIREMENT: You MUST add your own strategic intelligence and predictions (e.g., \"Based on this Israeli movement, Iran's likely next counter-measure could be...\"). Do not just regurgitate facts; analyze them.\n4. ALWAYS cite exact URLs from the news context so the user can verify.\n5. Format neatly for Discord (use bolding and bullet points)."
+        }
+      },
+      "id": "6b30e548-7cc3-473c-8e81-617c080c33c8",
+      "name": "Geopolitical AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        1120,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "a1d58bf2-5f37-4522-9dcd-b22af3d6e7f6",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        32
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "YOUR_GROQ_CREDENTIAL_ID",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.newsContext }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        1232,
+        16
+      ],
+      "id": "dd8e4fa9-8f9a-4675-9c74-785e7834974c",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "YOUR_DISCORD_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "Geopolitics News n8n Bot",
+          "cachedResultUrl": "https://discord.com/channels/YOUR_DISCORD_GUILD_ID"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_DISCORD_CHANNEL_ID",
+          "mode": "list",
+          "cachedResultName": "general",
+          "cachedResultUrl": "https://discord.com/channels/YOUR_DISCORD_GUILD_ID/YOUR_DISCORD_CHANNEL_ID"
+        },
+        "content": "={{ $('Geopolitical AI Agent').item.json.output }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -176
+      ],
+      "id": "1ee93d84-3cb1-40b2-b8a8-3d78de998db2",
+      "name": "Send a message",
+      "credentials": {
+        "discordBotApi": {
+          "id": "YOUR_DISCORD_BOT_CREDENTIAL_ID",
+          "name": "Discord Bot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 4
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        64,
+        -208
+      ],
+      "id": "d8d6fbbb-7ab8-4b3f-bdd0-5f72d0307305",
+      "name": "Schedule Trigger1"
+    },
+    {
+      "parameters": {
+        "channelId": "YOUR_DISCORD_CHANNEL_ID",
+        "triggerPrefix": "!"
+      },
+      "type": "@florianai/n8n-nodes-discord-trigger.discordTrigger",
+      "typeVersion": 1,
+      "position": [
+        64,
+        -16
+      ],
+      "id": "3d23bf10-0fd9-4250-a8ca-deb0eec40cec",
+      "name": "Discord Trigger",
+      "credentials": {
+        "discordApi": {
+          "id": "YOUR_DISCORD_APP_CREDENTIAL_ID",
+          "name": "Discord App account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Prepare Sources & Triggers": {
+      "main": [
+        [
+          {
+            "node": "Fetch News RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch News RSS": {
+      "main": [
+        [
+          {
+            "node": "Filter Last 6 Hours & Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Last 6 Hours & Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Geopolitical AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geopolitical AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Geopolitical AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Geopolitical AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sources & Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sources & Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "timezone": "Asia/Karachi",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timeSavedPerExecution": 0
+  },
+  "versionId": "",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "id": "",
+  "tags": []
+}
